@@ -224,10 +224,12 @@ void Processor::dispatch () {
 
 	bool iq_is_free = iq.isFree((unsigned int) di.size());
 	if (iq_is_free) {
-		rob_entry iq_bundle_entry = di.front();
-		iq_bundle_entry.t_is_start = clk+1;
-		di.pop_front();
-		iq.insertEntry(iq_bundle_entry);
+		while (!di.empty()) {
+			rob_entry iq_bundle_entry = di.front();
+			iq_bundle_entry.t_is_start = clk+1;
+			di.pop_front();
+			iq.insertEntry(iq_bundle_entry);
+		}
 	}
 } 
 
@@ -343,6 +345,7 @@ void Processor::writeback () {
 		wb2rob_entry.rs2_rdy 	= rob_temp.rs2_rdy;
 
 		wb2rob_entry.rdy		= true;
+		wb2rob_entry.t_rt_start	= clk+1;
 
 		rob.updateEntry(wb2rob_entry.tag, wb2rob_entry);
 
