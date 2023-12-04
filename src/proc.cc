@@ -14,7 +14,7 @@ Processor::Processor (proc_params _params, FILE* _i_mem)
 	// Initialize processor statistics
 	stats.fetched_inst_cnt = 0;
 	stats.retired_inst_cnt = 0;
-	stats.cycles = clk;
+	stats.cycles = clk+1;
 	stats.ipc = 0;
 
 	ready2retire = 0;
@@ -24,9 +24,9 @@ Processor::Processor (proc_params _params, FILE* _i_mem)
 void Processor::runProc () {
 	//while (nextCycle()) {
 	do {
-		if (DBG) {
-			cout << "Starting... fic=" << stats.fetched_inst_cnt << " ric=" << stats.retired_inst_cnt << " cycle=" << clk << endl;
-		}
+		//if (DBG) {
+		//	cout << "Starting... fic=" << stats.fetched_inst_cnt << " ric=" << stats.retired_inst_cnt << " cycle=" << clk << endl;
+		//}
 
 		retire();
 		writeback();
@@ -38,9 +38,9 @@ void Processor::runProc () {
 		decode();
 		fetch();
 		
-		if (DBG) {
-			cout << "Ending... fic=" << stats.fetched_inst_cnt << " ric=" << stats.retired_inst_cnt << " cycle=" << clk << endl;
-		}
+		//if (DBG) {
+		//	cout << "Ending... fic=" << stats.fetched_inst_cnt << " ric=" << stats.retired_inst_cnt << " cycle=" << clk << endl;
+		//}
 	//}
 	} while (nextCycle());
 }
@@ -104,6 +104,16 @@ void Processor::decode () {
 			rename_bundle_entry.t_rn_start = clk+1;
 			de.pop_front();
 			rn.push_back(rename_bundle_entry);
+
+			if (DBG) {
+				cout << "Decoded Instruction : ";
+				cout << " pc " << rename_bundle_entry.i.pc;
+				cout << " op " << rename_bundle_entry.i.op;
+				cout << " dst " << rename_bundle_entry.i.dst;
+				cout << " src1 " << rename_bundle_entry.i.src1;
+				cout << " src2 " << rename_bundle_entry.i.src2;
+				cout << endl;
+			}
 		}
 	}
 }
@@ -167,6 +177,17 @@ void Processor::rename () {
 			rn.pop_front();
 			// feed into RR register
 			rr.push_back(entry);
+
+			if (DBG) {
+				cout << " Renamed Instruction : ";
+				cout << " pc " << entry.i.pc;
+				cout << " op " << entry.i.op;
+				cout << " dst " << entry.i.dst;
+				cout << " src1 " << entry.i.src1;
+				cout << " src2 " << entry.i.src2;
+				cout << " rob tag " << entry.tag;
+				cout << endl;
+			}
 		}
 	}
 }
@@ -355,39 +376,50 @@ void Processor::writeback () {
 
 void Processor::retire () {
 
-	if (DBG) {
-		cout << "Retiring instruction bundle" << endl;
-	}
+	// keeps track of imaginary head/tags that are to be retired
+	// since head not popped, tracking head/tag might be after head also
+	rob_entry tracking_head;
+	rob.getHead(tracking_head);
+	
+	int idx = 0;
 
 	// If ROB not empty
-	for (int idx=0; idx<(int)params.width; idx++) {
+	//for (int idx=0; 
+	while (
+			(idx<(int)params.width && 
+			// If consecutive instructions from head are ready?
+			rob.isReady(tracking_head.tag))//;
+			) {
+	//	idx++) {
 
-		rob_entry head;
+		// Update RMT if it has rename set for retiring rob tag
+		int dst = tracking_head.i.dst;
+		if (dst > 0) {
+			if (rmt.getROBTag(dst) == tracking_head.tag)
+				rmt.setValid(dst, false);
+		}
 
-		if (rob.isHeadReady()) {
-			// Retire from ROB in 2 stages:
-			// 	a) increment ready to retire for each ready instruction
-			// 	b) in register rename before adding rob entries, 
-			// 		remove the ready to retire entries
-			// This resolves a software implementation induced deadlock:
-			// If in cycle n, an instruction in RN stage gets rob tag renaming
-			// in cycle n+1, rob tag entry retired and removed from list
-			// before consumer instruction receives speculative rob value.
-			// rob.removeHead(head);
-			ready2retire++;
-			rob.getHead(head);
+		printTiming(tracking_head);
 
-			// Update RMT if it has rename set for retiring rob tag
-			int dst = head.i.dst;
-			if (dst > 0) {
-				if (rmt.getROBTag(dst) == head.tag)
-					rmt.setValid(dst, false);
-			}
+		// Retire from ROB in 2 stages:
+		// 	a) increment ready to retire for each ready instruction
+		// 		update tracking head to the next instruction if
+		// 		head is ready (functionally retired, but physically will be in (b)) 
+		// 	b) in register rename before adding rob entries, 
+		// 		remove the ready to retire entries
+		// This resolves a software implementation induced deadlock:
+		// If in cycle n, an instruction in RN stage gets rob tag renaming
+		// in cycle n+1, rob tag entry retired and removed from list
+		// before consumer instruction receives speculative rob value.
+		ready2retire++;
+		rob.getEntry(tracking_head.tag+1, tracking_head);
 
-			printTiming(head);
-			stats.retired_inst_cnt++;
-		} else {
-			break;
+		idx++;
+
+		stats.retired_inst_cnt++;
+
+		if (DBG) {
+			cout << "Retired instruction bundle" << endl;
 		}
 	}
 
@@ -395,9 +427,6 @@ void Processor::retire () {
 	if (stats.retired_inst_cnt == stats.fetched_inst_cnt)
 		pipeline_empty = true;
 
-	if (DBG) {
-		cout << "Retired instruction bundle" << endl;
-	}
 }
 
 void Processor::printTiming (rob_entry rti) {

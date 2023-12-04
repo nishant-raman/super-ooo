@@ -26,27 +26,48 @@ struct rob_entry {
 };
 
 class PipelineStructure {
-	unsigned int start_tag;
-	unsigned int size;
-	std::list<rob_entry> pipe_struct;
-	std::unordered_map<unsigned int, std::list<rob_entry>::iterator> tags;
-
-	unsigned int newTag();
+	protected:
+		unsigned int start_tag;
+		unsigned int size;
+		std::list<rob_entry> pipe_struct;
+		std::unordered_map<unsigned int, std::list<rob_entry>::iterator> tags;
 
 	public:
 		PipelineStructure(unsigned int _size) : size(_size) {start_tag = 0;}
 		
-		bool insertEntry(rob_entry);
+		virtual bool insertEntry(rob_entry) = 0;
 		void deleteHead();
 		void removeHead(rob_entry &);
 		void getHead(rob_entry &);
-		void getEntry(unsigned int, rob_entry &);
+		virtual void getEntry(unsigned int, rob_entry &);
 		void updateEntry(unsigned int, rob_entry);
 		bool isHeadReady();
-		bool isReady(unsigned int);
+		virtual bool isReady(unsigned int);
 		bool isFree(unsigned int width);
 		unsigned int getROBTag();
-		// FIXME fxn for IQ only
+};
+
+class ROB : public PipelineStructure {
+	protected:
+
+		unsigned int newTag();
+		void validTag(unsigned int &);
+
+	public:
+		ROB(unsigned int _size) : PipelineStructure(_size) {}
+		
+		bool insertEntry(rob_entry);
+		void getEntry(unsigned int, rob_entry &);
+		bool isReady(unsigned int);
+};
+
+class IQ : public PipelineStructure {
+	protected:
+
+	public:
+		IQ(unsigned int _size) : PipelineStructure(_size) {}
+		
+		bool insertEntry(rob_entry);
 		bool getNextReady(rob_entry &);
 		void deleteEntry(rob_entry);
 		void removeEntry(rob_entry, rob_entry &);

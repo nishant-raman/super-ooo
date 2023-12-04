@@ -23,8 +23,8 @@ class Processor {
 		std::list<rob_entry> de,rn,rr,di,wb;	// DE,RN,RR,DI,WB Pipeline registers
 		std::list<ex_entry> execute_list;
 		RMT rmt;
-		PipelineStructure rob;
-		PipelineStructure iq;
+		ROB rob;
+		IQ 	iq;
 		// ARF
 
 	public:

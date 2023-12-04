@@ -5,11 +5,21 @@ using namespace std;
 
 //-------------------------------------------------------------------------
 //	PipelineStructure functions
-//
+
 // Inserts a new entry into the ROB if there is space
-bool PipelineStructure::insertEntry (rob_entry tail) {
+bool ROB::insertEntry (rob_entry tail) {
 	if (pipe_struct.size() != size) {
 		tail.tag = newTag();
+		pipe_struct.push_back(tail);
+		tags[tail.tag] = --(pipe_struct.end());
+		return true;
+	} else
+		return false;
+};
+
+// Inserts a new entry into the ROB if there is space
+bool IQ::insertEntry (rob_entry tail) {
+	if (pipe_struct.size() != size) {
 		pipe_struct.push_back(tail);
 		tags[tail.tag] = --(pipe_struct.end());
 		return true;
@@ -38,13 +48,20 @@ void PipelineStructure::getHead (rob_entry &head) {
 }
 
 // gets the an entry of ROB
-void PipelineStructure::getEntry (unsigned int rob_tag, rob_entry &entry) {
-	entry = *tags[rob_tag];
+void PipelineStructure::getEntry (unsigned int key, rob_entry &entry) {
+	if (!pipe_struct.empty() && (tags.find(key)!=tags.end()))
+		entry = *(tags[key]);
+}
+
+void ROB::getEntry (unsigned int key, rob_entry &entry) {
+	validTag(key);
+	PipelineStructure::getEntry(key, entry);
 }
 
 // updates ROB entry
-void PipelineStructure::updateEntry (unsigned int rob_tag, rob_entry entry) {
-	*tags[rob_tag] = entry;
+void PipelineStructure::updateEntry (unsigned int key, rob_entry entry) {
+	if (!pipe_struct.empty() && (tags.find(key)!=tags.end()))
+		*(tags[key]) = entry;
 }
 
 bool PipelineStructure::isHeadReady () {
@@ -69,6 +86,12 @@ bool PipelineStructure::isReady (unsigned int key) {
 		return false;
 }
 
+// Finds if entry in rob with tag "key" is ready or not
+bool ROB::isReady (unsigned int key) {
+	validTag(key);
+	return PipelineStructure::isReady(key);
+}
+
 // check if ROB has instruction bundle width of free entries
 bool PipelineStructure::isFree (unsigned int width) {
 	unsigned int available_entries;
@@ -79,7 +102,7 @@ bool PipelineStructure::isFree (unsigned int width) {
 		return true;
 }
 
-unsigned int PipelineStructure::newTag () {
+unsigned int ROB::newTag () {
 	if (pipe_struct.empty())
 		return start_tag;
 	else if (pipe_struct.back().tag == (size-1))
@@ -88,24 +111,32 @@ unsigned int PipelineStructure::newTag () {
 		return pipe_struct.back().tag + 1;
 }
 
+void ROB::validTag 	(unsigned int &key) {
+	// FIXME is this sufficient
+	// might get tags outside range - so bring it back inside range
+	if (key >= size)
+		key -= size;
+}
+
 unsigned int PipelineStructure::getROBTag () {
 	return pipe_struct.back().tag;
 }
 
-bool PipelineStructure::getNextReady (rob_entry &iq_entry) {
+bool IQ::getNextReady (rob_entry &iq_entry) {
 	bool exists = false;
 	list<rob_entry>::iterator itr;
 	for(itr=pipe_struct.begin(); itr!=pipe_struct.end(); itr++) {
 		if (itr->rs1_rdy && itr->rs2_rdy) {
 			iq_entry = *itr;
 			exists = true;
+			break;
 		}
 	}
 	return exists;
 }
 
 // deletes the Head of ROB
-void PipelineStructure::deleteEntry (rob_entry remove_entry) {
+void IQ::deleteEntry (rob_entry remove_entry) {
 	unsigned int remove_tag = remove_entry.tag;
 	list<rob_entry>::iterator remove_entry_itr = tags[remove_tag];
 	tags.erase(remove_tag);
@@ -113,7 +144,7 @@ void PipelineStructure::deleteEntry (rob_entry remove_entry) {
 }
 
 // Removes Head entry of ROB, and gives entry
-void PipelineStructure::removeEntry (rob_entry remove_entry, rob_entry &loc) {
+void IQ::removeEntry (rob_entry remove_entry, rob_entry &loc) {
 	unsigned int remove_tag = remove_entry.tag;
 	list<rob_entry>::iterator remove_entry_itr = tags[remove_tag];
 	tags.erase(remove_tag);
@@ -121,7 +152,7 @@ void PipelineStructure::removeEntry (rob_entry remove_entry, rob_entry &loc) {
 	pipe_struct.erase(remove_entry_itr);
 }
 
-void PipelineStructure::wakeup (unsigned int tag) {
+void IQ::wakeup (unsigned int tag) {
 	list<rob_entry>::iterator itr;
 	for (itr=pipe_struct.begin(); itr!=pipe_struct.end(); itr++) {
 		if (itr->rs1_rn && (itr->i.src1 == (int)tag))
