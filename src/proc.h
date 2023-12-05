@@ -17,7 +17,8 @@ class Processor {
 		FILE* 				i_mem; 
 		bool pipeline_empty, eof; // termination signals
 		const int execute_depth = 5;
-		int ready2retire;
+		const int deadlock_tolerance = 1000;
+		int deadlock;
 		
 		// Microarchitectural Registers
 		std::list<rob_entry> de,rn,rr,di,wb;	// DE,RN,RR,DI,WB Pipeline registers

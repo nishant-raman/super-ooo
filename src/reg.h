@@ -45,6 +45,7 @@ class PipelineStructure {
 		virtual bool isReady(unsigned int);
 		bool isFree(unsigned int width);
 		unsigned int getROBTag();
+		bool isEmpty();
 };
 
 class ROB : public PipelineStructure {
@@ -91,12 +92,6 @@ class RMT {
 		void setValid(int, bool);
 		void setROBTag(int, unsigned int);
 };
-
-// FIXME
-// implement later as virtual derived class 
-//class IQ {
-//	std::list<rob_entry> iq;
-//}
 
 struct ex_entry {
 	int	timer; // max of 5

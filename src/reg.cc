@@ -122,6 +122,10 @@ unsigned int PipelineStructure::getROBTag () {
 	return pipe_struct.back().tag;
 }
 
+bool PipelineStructure::isEmpty() {
+	return pipe_struct.empty();
+}
+
 bool IQ::getNextReady (rob_entry &iq_entry) {
 	bool exists = false;
 	list<rob_entry>::iterator itr;

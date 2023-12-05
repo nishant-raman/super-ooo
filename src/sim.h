@@ -6,7 +6,7 @@
 #include <string.h>
 #include <inttypes.h>
 
-#define DBG 1
+#define DBG 0
 
 typedef struct proc_params{
     unsigned long int rob_size;

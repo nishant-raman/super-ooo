@@ -17,7 +17,7 @@ Processor::Processor (proc_params _params, FILE* _i_mem)
 	stats.cycles = clk+1;
 	stats.ipc = 0;
 
-	ready2retire = 0;
+	deadlock = 0;
 }
 
 // Run the processor
@@ -43,12 +43,21 @@ void Processor::runProc () {
 		//}
 	//}
 	} while (nextCycle());
+
+	if (DBG) {
+		cout << "Dumping ROB contents:" << endl;
+		while (!rob.isEmpty()) {
+			rob_entry instruction_dump;
+			rob.removeHead(instruction_dump);
+			printTiming(instruction_dump);
+		}
+	}
 }
 
 // Increment cycle
 bool Processor::nextCycle () {
 	stats.ipc = (float)stats.retired_inst_cnt/(float)stats.cycles;
-	if (eof && pipeline_empty)
+	if ((eof && pipeline_empty) || (deadlock>deadlock_tolerance))
 		return false;
 	else {
 
@@ -68,6 +77,7 @@ void Processor::fetch () {
 	rob_entry decode_bundle_entry;
 	
 	if (!stall) {
+		deadlock = 0;
 		for (int idx=0; (idx<(int)params.width) && (!eof); idx++) {
     		if (fscanf(i_mem, "%lx %d %d %d %d", &i.pc, &i.op, &i.dst, &i.src1, &i.src2) != EOF) {
 				
@@ -87,13 +97,20 @@ void Processor::fetch () {
 				decode_bundle_entry.i = i;
 				decode_bundle_entry.t_fe_start = clk;
 				decode_bundle_entry.t_de_start = clk+1;
+				decode_bundle_entry.t_rn_start = 0;
+				decode_bundle_entry.t_rr_start = 0;
+				decode_bundle_entry.t_di_start = 0;
+				decode_bundle_entry.t_is_start = 0;
+				decode_bundle_entry.t_ex_start = 0;
+				decode_bundle_entry.t_wb_start = 0;
 				de.push_back(decode_bundle_entry);
 
 			} else
 				eof = true;
 
 		}
-	}
+	} else
+		deadlock++;
 }
 
 void Processor::decode () {
@@ -122,13 +139,6 @@ void Processor::rename () {
 
 	bool stall = !rr.empty();
 
-	// NOTE: Retire pending ready instructions
-	while (ready2retire--) {
-		rob.deleteHead();
-	}
-	ready2retire = 0;	// after while loop r2r is -1
-
-	
 	bool rob_is_free = rob.isFree((unsigned int) rn.size());
 	if (rob_is_free && !stall) {
 		
@@ -211,9 +221,6 @@ void Processor::regRead () {
 			if (src_rn) {
 				if (rob.isReady(src))
 					regrd_bundle_entry.rs1_rdy = true;
-				// FIXME not needed? explicitly taken care of in rename and wakeups
-				//else
-				//	regrd_bundle_entry.rs1_rdy = rdy ? true : false;
 			} else {
 				regrd_bundle_entry.rs1_rdy = true;
 			}
@@ -225,8 +232,6 @@ void Processor::regRead () {
 			if (src_rn) {
 				if (rob.isReady(src))
 					regrd_bundle_entry.rs2_rdy = true;
-				//else
-				//	regrd_bundle_entry.rs2_rdy = false;
 			} else {
 				regrd_bundle_entry.rs2_rdy = true;
 			}
@@ -376,43 +381,43 @@ void Processor::writeback () {
 
 void Processor::retire () {
 
-	// keeps track of imaginary head/tags that are to be retired
-	// since head not popped, tracking head/tag might be after head also
-	rob_entry tracking_head;
-	rob.getHead(tracking_head);
-	
 	int idx = 0;
 
 	// If ROB not empty
-	//for (int idx=0; 
-	while (
-			(idx<(int)params.width && 
-			// If consecutive instructions from head are ready?
-			rob.isReady(tracking_head.tag))//;
-			) {
-	//	idx++) {
-
-		// Update RMT if it has rename set for retiring rob tag
-		int dst = tracking_head.i.dst;
-		if (dst > 0) {
-			if (rmt.getROBTag(dst) == tracking_head.tag)
-				rmt.setValid(dst, false);
-		}
-
-		printTiming(tracking_head);
+	while (idx<(int)params.width &&	rob.isHeadReady()) {
 
 		// Retire from ROB in 2 stages:
-		// 	a) increment ready to retire for each ready instruction
-		// 		update tracking head to the next instruction if
-		// 		head is ready (functionally retired, but physically will be in (b)) 
-		// 	b) in register rename before adding rob entries, 
-		// 		remove the ready to retire entries
+		// 	a) copy head locally and remove it from ROB
+		// 	b) Artificially access RR and set dependent entries as ready
+		// 		giving the illusion of both operations happening in the
+		// 		same cycle despite different stages
 		// This resolves a software implementation induced deadlock:
 		// If in cycle n, an instruction in RN stage gets rob tag renaming
 		// in cycle n+1, rob tag entry retired and removed from list
 		// before consumer instruction receives speculative rob value.
-		ready2retire++;
-		rob.getEntry(tracking_head.tag+1, tracking_head);
+
+		// (a)
+		rob_entry head;
+		rob.removeHead(head);
+
+		// Update RMT if it has rename set for retiring rob tag
+		int dst = head.i.dst;
+		if (dst > 0) {
+			if (rmt.getROBTag(dst) == head.tag)
+				rmt.setValid(dst, false);
+		}
+
+		// Print relevant instruction metadata
+		printTiming(head);
+
+		// (b) check dependency in RN and bypass wakeup/data
+		list<rob_entry>::iterator itr;
+		for (itr=rr.begin(); itr!=rr.end(); itr++) {
+			if (itr->rs1_rn && (itr->i.src1 == (int)head.tag))
+				itr->rs1_rdy = true;
+			if (itr->rs2_rn && (itr->i.src2 == (int)head.tag))
+				itr->rs2_rdy = true;
+		}
 
 		idx++;
 
@@ -442,7 +447,7 @@ void Processor::printTiming (rob_entry rti) {
 	cout << " IS{" << rti.t_is_start << "," << rti.t_ex_start - rti.t_is_start << "}";
 	cout << " EX{" << rti.t_ex_start << "," << rti.t_wb_start - rti.t_ex_start << "}";
 	cout << " WB{" << rti.t_wb_start << "," << rti.t_rt_start - rti.t_wb_start << "}";
-	cout << " RT{" << rti.t_rt_start << "," << clk - rti.t_rt_start + 1 << "}"; // FIXME is it +1 really or just lucky?
+	cout << " RT{" << rti.t_rt_start << "," << clk - rti.t_rt_start + 1 << "}";
 	cout << endl;
 }
 
@@ -456,5 +461,5 @@ void Processor::printFinalResults () {
 	cout << "# === Simulation Results ========" << endl;
 	cout << "# Dynamic Instruction Count    = " << stats.retired_inst_cnt << endl;
 	cout << "# Cycles                       = " << stats.cycles << endl;
-	cout << "# Instructions Per Cycle (IPC) = " << stats.ipc << endl;
+	cout << "# Instructions Per Cycle (IPC) = " << fixed << setprecision(2) << stats.ipc << endl;
 }
